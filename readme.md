@@ -5,15 +5,7 @@ Este projeto baixa um livro diretamente do site do Projeto Gutenberg, e encontra
 Precisa de Python 3.10 ou uma versão maior.
 
 ## Antes de usar
-1. É neccessario criar um ambiente virtual.
-```
-py -m venv .venv
-```
-2. No CMD, navegue até a pasta, e ative o venv.
-```
-.venv\Scripts\activate
-```
-3. Ainda no CMD, instale as dependencias do projeto, no dep.txt
+É necessario instalar as dependencias, se não estiverem instalados. Não é preciso ambiente virtual.
 ```
 pip install -r dep.txt
 ```

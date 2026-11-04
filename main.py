@@ -1,6 +1,9 @@
 import csv
+import json
+import os
 import re
 import sys
+import time
 import urllib.request
 from collections import Counter
 from itertools import combinations
@@ -8,10 +11,12 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import networkx as nx
 import spacy
 from PIL import Image
 from spacy.cli import download as baixar_modelo_spacy
+from groq import Groq, RateLimitError
 
 LINK_PADRAO = "https://www.gutenberg.org/cache/epub/2701/pg2701-images.html"
 MODELO = "en_core_web_sm"
@@ -20,6 +25,16 @@ MAX_PERSONAGENS = 30
 JANELA = 3
 MIN_ARESTA = 2
 MIN_PALAVRAS_CAPITULO = 50
+
+GROQ_MODELO = "openai/gpt-oss-120b"
+MAX_PARES_LLM = 40
+MAX_TRECHOS = 8
+MAX_CHARS_TRECHO = 400
+PAUSA_GROQ = 2.5
+RELACOES = ("amigo", "indiferente", "inimigo")
+COR_RELACAO = {"amigo": "#2a9d8f", "indiferente": "#8d99ae", "inimigo": "#d62828"}
+COR_PADRAO = "#555555"
+
 TITULOS = {
     "mr", "mrs", "miss", "ms", "dr", "captain", "capt", "sir", "lord", "lady",
     "father", "mother", "uncle", "aunt", "old", "king", "queen", "master",
@@ -124,10 +139,10 @@ def limparNome(txt):
 
 
 def getNomes(caps, nlp, narr=None):
-    resultado = []
+    resultado, textos = [], []
     for i, doc in enumerate(nlp.pipe([corpo for _, corpo in caps], batch_size=1), 1):
         entre_aspas = [m.span() for m in ASPAS.finditer(doc.text)] if narr else []
-        frases = []
+        frases, txt_frases = [], []
         for frase in doc.sents:
             nomes = [limparNome(e.text) for e in frase.ents if e.label_ == "PERSON"]
             nomes = [n for n in nomes if n]
@@ -137,10 +152,12 @@ def getNomes(caps, nlp, narr=None):
             ):
                 nomes.append(narr)
             frases.append(nomes)
+            txt_frases.append(frase.text.strip())
         resultado.append(frases)
+        textos.append(txt_frases)
         print(f"NER: {i}/{len(caps)}", end="\r")
     print()
-    return resultado
+    return resultado, textos
 
 
 def getApelidos(cont):
@@ -155,9 +172,10 @@ def getApelidos(cont):
                     break
     return apelidos
 
-def contarRelacoes(fcap, apel, pers):
+def contarRelacoes(fcap, tcap, apel, pers):
     mencoes_cap, arestas_cap = [], []
-    for frases in fcap:
+    exemplos = {}
+    for frases, txt_frases in zip(fcap, tcap):
         mencoes, arestas = Counter(), Counter()
         for k in range(0, len(frases), JANELA):
             cena = set()
@@ -167,25 +185,100 @@ def contarRelacoes(fcap, apel, pers):
                     if n in pers:
                         mencoes[n] += 1
                         cena.add(n)
-            for par in combinations(sorted(cena), 2):
-                arestas[par] += 1
+            if len(cena) >= 2:
+                trecho = " ".join(txt_frases[k:k + JANELA])[:MAX_CHARS_TRECHO]
+                for par in combinations(sorted(cena), 2):
+                    arestas[par] += 1
+                    exemplos.setdefault(par, []).append(trecho)
         mencoes_cap.append(mencoes)
         arestas_cap.append(arestas)
-    return mencoes_cap, arestas_cap
+    return mencoes_cap, arestas_cap, exemplos
 
-def desenhar(G, pos, menc, novos, tit, cam, dpi):
+
+def escolherTrechos(trechos):
+    if len(trechos) <= MAX_TRECHOS:
+        return trechos
+    passo = len(trechos) / MAX_TRECHOS
+    return [trechos[int(i * passo)] for i in range(MAX_TRECHOS)]
+
+
+def classificarRelacoes(arestas_total, exemplos, titulo):
+    chave = os.environ.get("GROQ_API_KEY", "").strip()
+    if not chave:
+        print("GROQ_API_KEY não definida: relações não serão classificadas.")
+        return {}
+
+    cliente = Groq(api_key=chave)
+    pares = [p for p, w in arestas_total.most_common() if w >= MIN_ARESTA][:MAX_PARES_LLM]
+    resultado = {}
+
+    for i, (a, b) in enumerate(pares, 1):
+        trechos = "\n".join(f"- {t}" for t in escolherTrechos(exemplos[(a, b)]))
+        prompt = (
+            f'Livro: "{titulo}".\n'
+            f"Personagens: {a} e {b}.\n"
+            f"Trechos em que aparecem juntos:\n{trechos}\n\n"
+            f"Com base nos trechos, classifique a relação de {a} com {b} em UMA categoria:\n"
+            '- "amigo": aliança, afeto, lealdade, cooperação\n'
+            '- "inimigo": conflito, rivalidade, hostilidade, antagonismo\n'
+            '- "indiferente": relação neutra, apenas profissional/circunstancial ou sem sinais claros\n'
+            'Responda SOMENTE com JSON: {"relacao": "amigo|indiferente|inimigo", '
+            '"confianca": número de 0 a 1, "motivo": "uma frase curta em português"}'
+        )
+        for tentativa in range(4):
+            try:
+                resp = cliente.chat.completions.create(
+                    model=GROQ_MODELO,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    temperature=0,
+                    max_tokens=400,
+                )
+                dados = json.loads(resp.choices[0].message.content)
+                rel = str(dados.get("relacao", "")).strip().lower()
+                if rel not in RELACOES:
+                    rel = "indiferente"
+                resultado[(a, b)] = {"relacao": rel, "motivo": str(dados.get("motivo", "")).strip()}
+                break
+            except RateLimitError:
+                time.sleep(10 * (tentativa + 1))
+            except Exception as e:
+                print(f"\nErro Groq em {a} - {b}: {e}")
+                break
+        print(f"Groq: {i}/{len(pares)}", end="\r")
+        time.sleep(PAUSA_GROQ)
+    print()
+    return resultado
+
+
+def desenhar(G, pos, menc, novos, tit, cam, dpi, relacoes=None):
+    relacoes = relacoes or {}
     fig, ax = plt.subplots(figsize=(10, 8))
     arestas = [(u, v) for u, v, d in G.edges(data=True) if d["weight"] >= MIN_ARESTA]
-    larguras = [min(0.8 + G[u][v]["weight"] ** 0.5 * 0.4, 6) for u, v in arestas]
-    nx.draw_networkx_edges(G, pos, edgelist=arestas, width=larguras, edge_color="black",
-                           alpha=0.6, ax=ax)
+
+    grupos = {}
+    for u, v in arestas:
+        tipo = relacoes.get(tuple(sorted((u, v))), {}).get("relacao")
+        grupos.setdefault(tipo, []).append((u, v))
+    for tipo, lista in grupos.items():
+        larguras = [min(0.8 + G[u][v]["weight"] ** 0.5 * 0.4, 6) for u, v in lista]
+        nx.draw_networkx_edges(G, pos, edgelist=lista, width=larguras,
+                               edge_color=COR_RELACAO.get(tipo, COR_PADRAO), alpha=0.75, ax=ax)
+
     nos = list(G.nodes)
     tamanhos = [min(100 + 25 * menc[n] ** 0.5, 1500) for n in nos]
-    cores = ["#e63946" if n in novos else "#f4a261" for n in nos]
+    cores = ["#457b9d" if n in novos else "#f4a261" for n in nos]
     nx.draw_networkx_nodes(G, pos, nodelist=nos, node_size=tamanhos, node_color=cores,
                            edgecolors="#333", linewidths=0.8, ax=ax)
     nx.draw_networkx_labels(G, pos, font_size=8, ax=ax,
                             bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.7))
+
+    if relacoes:
+        legenda = [Line2D([0], [0], color=COR_RELACAO[r], lw=3, label=r.capitalize()) for r in RELACOES]
+        legenda.append(Line2D([0], [0], marker="o", color="w", markerfacecolor="#457b9d",
+                              markeredgecolor="#333", markersize=9, label="Personagem novo"))
+        ax.legend(handles=legenda, loc="lower left", fontsize=8, framealpha=0.85)
+
     xs, ys = zip(*pos.values())
     ax.set_xlim(min(xs) - 0.15, max(xs) + 0.15)
     ax.set_ylim(min(ys) - 0.15, max(ys) + 0.15)
@@ -225,7 +318,7 @@ def main():
     pasta_frames.mkdir(parents=True, exist_ok=True)
 
     nlp = carregarModelo()
-    frases_por_capitulo = getNomes(capitulos, nlp, narrador)
+    frases_por_capitulo, textos_por_capitulo = getNomes(capitulos, nlp, narrador)
 
     contagem_bruta = Counter(n for frases in frases_por_capitulo for f in frases for n in f)
     apelidos = getApelidos(contagem_bruta)
@@ -238,11 +331,15 @@ def main():
     if not personagens:
         sys.exit("Nenhum personagem encontrado.")
 
-    mencoes_cap, arestas_cap = contarRelacoes(frases_por_capitulo, apelidos, personagens)
+    mencoes_cap, arestas_cap, exemplos = contarRelacoes(
+        frases_por_capitulo, textos_por_capitulo, apelidos, personagens)
 
     arestas_total = Counter()
     for e in arestas_cap:
         arestas_total.update(e)
+
+    relacoes = classificarRelacoes(arestas_total, exemplos, titulo)
+
     grafo_layout = nx.Graph()
     grafo_layout.add_nodes_from(sorted(personagens))
     for (a, b), w in sorted(arestas_total.items()):
@@ -276,11 +373,12 @@ def main():
             "maior_relacao": f"{mais_forte[0][0]} - {mais_forte[0][1]} ({mais_forte[1]})",
         })
         desenhar(G, pos, mencoes_acum, novos, f"{titulo} — cap. {i}/{len(capitulos)}: {rotulo}",
-                 pasta_frames / f"{i:03d}.png", dpi=70)
+                 pasta_frames / f"{i:03d}.png", dpi=70, relacoes=relacoes)
         print(f"Grafo: {i}/{len(capitulos)}", end="\r")
     print()
 
-    desenhar(G, pos, mencoes_acum, set(), f"{titulo} — rede final", saida / "grafo_final.png", dpi=130)
+    desenhar(G, pos, mencoes_acum, set(), f"{titulo} — rede final", saida / "grafo_final.png",
+             dpi=130, relacoes=relacoes)
     criarGif(pasta_frames, saida / "evolution.gif")
 
     with open(saida / "capitulo.csv", "w", newline="", encoding="utf-8") as f:
@@ -289,9 +387,12 @@ def main():
         w.writerows(linhas)
     with open(saida / "relacoes.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["personagem_a", "personagem_b", "peso", "primeiro_capitulo"])
+        w.writerow(["personagem_a", "personagem_b", "peso", "primeiro_capitulo", "relacao", "motivo"])
         for a, b, d in sorted(G.edges(data=True), key=lambda x: -x[2]["weight"]):
-            w.writerow([a, b, d["weight"], primeira_aresta[tuple(sorted((a, b)))]])
+            par = tuple(sorted((a, b)))
+            info = relacoes.get(par, {})
+            w.writerow([a, b, d["weight"], primeira_aresta[par],
+                        info.get("relacao", ""), info.get("motivo", "")])
     with open(saida / "personagens.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["personagem", "mencoes", "primeiro_capitulo"])
@@ -301,7 +402,8 @@ def main():
     print("\nPersonagems mais mencionados:", ", ".join(f"{n} ({c})" for n, c in mencoes_acum.most_common(8)))
     print("Relações mais frequentes:")
     for a, b, d in sorted(G.edges(data=True), key=lambda x: -x[2]["weight"])[:8]:
-        print(f"- {a} <-> {b}: {d['weight']}")
+        rel = relacoes.get(tuple(sorted((a, b))), {}).get("relacao", "?")
+        print(f"- {a} <-> {b}: {d['weight']} [{rel}]")
     print(f"\nTerminado. Resultados na pasta: {saida.resolve()}")
 
 if __name__ == "__main__":

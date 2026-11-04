@@ -46,10 +46,10 @@ def getTexto(id):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, timeout=60) as r:
-                print(f"Baixado: {url}")
+                (f"Baixado: {url}")
                 return r.read().decode("utf-8-sig", errors="replace").replace("\r\n", "\n")
         except Exception as e:
-            print(f"Falhou {url}: {e}")
+            (f"Falhou {url}: {e}")
     sys.exit("Não foi possivel baixar o texto do Livro..")
 
 def getTitulo(txt):
@@ -89,7 +89,7 @@ def separarCapitulos(txt):
             capitulos.append((m.group(1).strip(), corpo))
 
     if len(capitulos) < 2:
-        print("Capítulos não encontrados; dividindo o livro em 20 partes.")
+        print("Capitulos não encontrados, ou insuficientes. Dividindo o livro em 20 partes.")
         palavras = juntarLinhas(txt).split()
         tamanho = max(1, len(palavras) // 20)
         capitulos = [
@@ -138,8 +138,8 @@ def getNomes(caps, nlp, narr=None):
                 nomes.append(narr)
             frases.append(nomes)
         resultado.append(frases)
-        print(f"NER: {i}/{len(caps)}", end="\r")
-    print()
+        (f"NER: {i}/{len(caps)}", end="\r")
+    ()
     return resultado
 
 
@@ -216,9 +216,9 @@ def main():
     id_livro = getLivro(link)
     bruto = getTexto(id_livro)
     titulo = getTitulo(bruto)
-    print(f"Livro: {titulo}")
+    (f"Livro: {titulo}")
     capitulos = separarCapitulos(removeCabecalho(bruto))
-    print(f"{len(capitulos)} capítulos encontrados.")
+    (f"{len(capitulos)} capítulos encontrados.")
 
     saida = Path("output") / re.sub(r"[^A-Za-z0-9]+", "_", titulo).strip("_")[:50]
     pasta_frames = saida / "evolution"
@@ -277,8 +277,8 @@ def main():
         })
         desenhar(G, pos, mencoes_acum, novos, f"{titulo} — cap. {i}/{len(capitulos)}: {rotulo}",
                  pasta_frames / f"{i:03d}.png", dpi=70)
-        print(f"Grafo: {i}/{len(capitulos)}", end="\r")
-    print()
+        (f"Grafo: {i}/{len(capitulos)}", end="\r")
+    ()
 
     desenhar(G, pos, mencoes_acum, set(), f"{titulo} — rede final", saida / "grafo_final.png", dpi=130)
     criarGif(pasta_frames, saida / "evolution.gif")
@@ -298,11 +298,11 @@ def main():
         for n, c in mencoes_acum.most_common():
             w.writerow([n, c, primeiro_cap[n]])
 
-    print("\nPersonagems mais mencionados:", ", ".join(f"{n} ({c})" for n, c in mencoes_acum.most_common(8)))
-    print("Relações mais frequentes:")
+    ("\nPersonagems mais mencionados:", ", ".join(f"{n} ({c})" for n, c in mencoes_acum.most_common(8)))
+    ("Relações mais frequentes:")
     for a, b, d in sorted(G.edges(data=True), key=lambda x: -x[2]["weight"])[:8]:
-        print(f"- {a} <-> {b}: {d['weight']}")
-    print(f"\nTerminado. Resultados na pasta: {saida.resolve()}")
+        (f"- {a} <-> {b}: {d['weight']}")
+    (f"\nTerminado. Resultados na pasta: {saida.resolve()}")
 
 if __name__ == "__main__":
     main()

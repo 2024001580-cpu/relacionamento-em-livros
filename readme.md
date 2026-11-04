@@ -9,6 +9,10 @@ Precisa de Python 3.10 ou uma versão maior.
 ```
 pip install -r dep.txt
 ```
+Também é necessario colocar uma chave Groq.
+```
+set GROQ_API_KEY=sua_chave_aqui
+```
 
 ## Como usar
 

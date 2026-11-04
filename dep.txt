@@ -1,0 +1,5 @@
+spacy
+networkx
+matplotlib
+pillow
+scipy

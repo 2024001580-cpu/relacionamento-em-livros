@@ -16,7 +16,7 @@ import networkx as nx
 import spacy
 from PIL import Image
 from spacy.cli import download as baixar_modelo_spacy
-from groq import Groq, RateLimitError
+from groq import Groq, RateLimitError, BadRequestError
 
 LINK_PADRAO = "https://www.gutenberg.org/cache/epub/2701/pg2701-images.html"
 MODELO = "en_core_web_sm"
@@ -25,6 +25,7 @@ MAX_PERSONAGENS = 30
 JANELA = 3
 MIN_ARESTA = 2
 MIN_PALAVRAS_CAPITULO = 50
+
 
 GROQ_MODELO = "openai/gpt-oss-120b"
 MAX_PARES_LLM = 40
@@ -202,6 +203,19 @@ def escolherTrechos(trechos):
     return [trechos[int(i * passo)] for i in range(MAX_TRECHOS)]
 
 
+def lerRelacao(texto):
+    if not texto:
+        return None
+    try:
+        rel = str(json.loads(texto).get("relacao", "")).strip().lower()
+        if rel in RELACOES:
+            return rel
+    except (json.JSONDecodeError, AttributeError):
+        pass
+    m = re.search(r"\b(amigo|indiferente|inimigo)\b", texto.lower())
+    return m.group(1) if m else None
+
+
 def classificarRelacoes(arestas_total, exemplos, titulo):
     chave = os.environ.get("GROQ_API_KEY", "").strip()
     if not chave:
@@ -222,8 +236,8 @@ def classificarRelacoes(arestas_total, exemplos, titulo):
             '- "amigo": aliança, afeto, lealdade, cooperação\n'
             '- "inimigo": conflito, rivalidade, hostilidade, antagonismo\n'
             '- "indiferente": relação neutra, apenas profissional/circunstancial ou sem sinais claros\n'
-            'Responda SOMENTE com JSON: {"relacao": "amigo|indiferente|inimigo", '
-            '"confianca": número de 0 a 1, "motivo": "uma frase curta em português"}'
+            'Responda SOMENTE com JSON no formato: {"relacao": "amigo"} '
+            'usando exatamente um dos valores: amigo, indiferente ou inimigo.'
         )
         for tentativa in range(4):
             try:
@@ -232,18 +246,21 @@ def classificarRelacoes(arestas_total, exemplos, titulo):
                     messages=[{"role": "user", "content": prompt}],
                     response_format={"type": "json_object"},
                     temperature=0,
-                    max_tokens=400,
+                    max_completion_tokens=1024,
+                    reasoning_effort="low",
                 )
-                dados = json.loads(resp.choices[0].message.content)
-                rel = str(dados.get("relacao", "")).strip().lower()
-                if rel not in RELACOES:
-                    rel = "indiferente"
-                resultado[(a, b)] = {"relacao": rel, "motivo": str(dados.get("motivo", "")).strip()}
-                break
+                rel = lerRelacao(resp.choices[0].message.content)
             except RateLimitError:
                 time.sleep(10 * (tentativa + 1))
+                continue
+            except BadRequestError as e:
+
+                rel = lerRelacao(str(e))
             except Exception as e:
                 print(f"\nErro Groq em {a} - {b}: {e}")
+                break
+            if rel:
+                resultado[(a, b)] = {"relacao": rel}
                 break
         print(f"Groq: {i}/{len(pares)}", end="\r")
         time.sleep(PAUSA_GROQ)
@@ -255,6 +272,7 @@ def desenhar(G, pos, menc, novos, tit, cam, dpi, relacoes=None):
     relacoes = relacoes or {}
     fig, ax = plt.subplots(figsize=(10, 8))
     arestas = [(u, v) for u, v, d in G.edges(data=True) if d["weight"] >= MIN_ARESTA]
+
 
     grupos = {}
     for u, v in arestas:
@@ -387,12 +405,11 @@ def main():
         w.writerows(linhas)
     with open(saida / "relacoes.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["personagem_a", "personagem_b", "peso", "primeiro_capitulo", "relacao", "motivo"])
+        w.writerow(["personagem_a", "personagem_b", "peso", "primeiro_capitulo", "relacao"])
         for a, b, d in sorted(G.edges(data=True), key=lambda x: -x[2]["weight"]):
             par = tuple(sorted((a, b)))
-            info = relacoes.get(par, {})
             w.writerow([a, b, d["weight"], primeira_aresta[par],
-                        info.get("relacao", ""), info.get("motivo", "")])
+                        relacoes.get(par, {}).get("relacao", "")])
     with open(saida / "personagens.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["personagem", "mencoes", "primeiro_capitulo"])

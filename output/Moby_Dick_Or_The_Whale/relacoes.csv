@@ -1,0 +1,72 @@
+personagem_a,personagem_b,peso,primeiro_capitulo,relacao
+Ahab,Starbuck,48,21,inimigo
+Ahab,Moby Dick,31,36,inimigo
+Ishmael,Ahab,28,16,indiferente
+Ishmael,Peleg,25,16,indiferente
+Ahab,Fedallah,14,48,amigo
+Peleg,Bildad,12,16,amigo
+Starbuck,Stubb,12,22,amigo
+Ishmael,Starbuck,11,21,inimigo
+Ishmael,Hussey,10,15,inimigo
+Ishmael,Queequeg,9,4,amigo
+Ahab,Tashtego,9,28,amigo
+Ahab,Perth,9,112,amigo
+Ishmael,Jonah,7,3,indiferente
+Ishmael,Yojo,7,16,indiferente
+Peleg,Ahab,7,16,inimigo
+Ahab,Stubb,7,29,inimigo
+Gabriel,Ahab,5,71,inimigo
+Starbuck,Moby Dick,5,36,inimigo
+Daggoo,Tashtego,5,34,indiferente
+Ishmael,Mapple,4,8,indiferente
+Peleg,Starbuck,4,22,amigo
+Ahab,Daggoo,4,34,amigo
+Ishmael,Bildad,3,16,amigo
+Ishmael,Nantucketers,3,24,indiferente
+Ishmael,Scoresby,3,32,indiferente
+Ishmael,Moby Dick,3,41,indiferente
+Ishmael,Tashtego,3,47,indiferente
+Ishmael,Leviathan,3,88,indiferente
+Ahab,Manxman,3,28,indiferente
+Stubb,Flask,3,22,amigo
+Tashtego,Dough-Boy,3,34,inimigo
+Gabriel,Moby Dick,2,71,inimigo
+Ishmael,Cook,2,1,indiferente
+Ishmael,Whales,2,104,indiferente
+Bildad,Starbuck,2,22,inimigo
+Ahab,Dough-Boy,2,34,indiferente
+Ahab,Pip,2,124,
+Starbuck,Flask,2,22,indiferente
+Starbuck,Dough-Boy,2,34,indiferente
+Starbuck,Fedallah,2,129,
+Starbuck,Tashtego,2,129,
+Tashtego,Moby Dick,2,36,indiferente
+Moby Dick,Fedallah,2,73,inimigo
+Gabriel,Ishmael,1,1,
+Gabriel,Starbuck,1,71,
+Ishmael,Jove,1,7,
+Ishmael,Pip,1,40,
+Ishmael,Stubb,1,49,
+Ishmael,Flask,1,49,
+Ishmael,Sebastian,1,54,
+Cook,Nantucketers,1,24,
+Cook,Stubb,1,64,
+Queequeg,Yojo,1,17,
+Nantucketers,Bildad,1,16,
+Nantucketers,Peleg,1,16,
+Peleg,Yojo,1,16,
+Bildad,Ahab,1,16,
+Starbuck,Pip,1,110,
+Stubb,Daggoo,1,61,
+Stubb,Fedallah,1,73,
+Stubb,Tashtego,1,84,
+Stubb,Guernsey,1,91,
+Stubb,Pip,1,93,
+Flask,Fedallah,1,73,
+Daggoo,Dough-Boy,1,34,
+Tashtego,Fedallah,1,129,
+Dough-Boy,Pip,1,93,
+Moby Dick,Sebastian,1,54,
+Moby Dick,Perth,1,132,
+Fedallah,Perth,1,132,
+Lakeman,Sebastian,1,54,
